@@ -1,9 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.26730.15
+VisualStudioVersion = 15.0.26730.12
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PGNative", "PGNative\PGNative.csproj", "{51A990B6-5B1F-4990-A6E5-FF4DB25019C8}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PGNative", "PGNative\PGNative.csproj", "{51A990B6-5B1F-4990-A6E5-FF4DB25019C8}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ADO", "ADO\ADO.csproj", "{96ED879A-14C7-4296-AD64-76D3702A3154}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +17,10 @@ Global
 		{51A990B6-5B1F-4990-A6E5-FF4DB25019C8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{51A990B6-5B1F-4990-A6E5-FF4DB25019C8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{51A990B6-5B1F-4990-A6E5-FF4DB25019C8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{96ED879A-14C7-4296-AD64-76D3702A3154}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{96ED879A-14C7-4296-AD64-76D3702A3154}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{96ED879A-14C7-4296-AD64-76D3702A3154}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{96ED879A-14C7-4296-AD64-76D3702A3154}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
