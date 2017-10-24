@@ -7,147 +7,141 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PGNative
+#pragma warning disable 4014
+
+namespace LibPQ.Bench
 {
     internal class Program
     {
+        private const string ConnInfo = "host=localhost dbname=aspnet5-Benchmarks user=postgres password=Password1 client_encoding=utf8";
+        private const string StmtName = "q0";
+
+        private const int NumTasks = 32;
+
+        private static int _counter;
+        private static bool _stopping;
+
         private static async Task Main()
         {
-            const string connInfo = "host=localhost dbname=aspnet5-Benchmarks user=postgres password=Password1 client_encoding=utf8";
-            const int concurrency = 32;
-            const int timeS = 10;
-            const int maxTransactions = 100000;
-
-            var counter = 0;
-            var stopping = false;
+            var lastDisplay = DateTime.UtcNow;
 
             var tasks
                 = Enumerable
-                    .Range(1, concurrency)
-                    .Select(
-                        i => Task.Run(
-                            async () =>
-                                {
-                                    while (!stopping
-                                           && Interlocked.Increment(ref counter) < maxTransactions)
-                                    {
-                                        var conn = IntPtr.Zero;
-                                        try
-                                        {
-                                            conn = await Connect(connInfo);
+                    .Range(1, NumTasks)
+                    .Select(_ => Task.Factory.StartNew(DoWork, TaskCreationOptions.LongRunning))
+                    .ToList();
 
-                                            await Execute(conn);
-                                        }
-                                        catch
-                                        {
-                                        }
-                                        finally
-                                        {
-                                            if (conn != IntPtr.Zero)
-                                            {
-                                                LibPQ.PQfinish(conn);
-                                            }
-                                        }
-                                    }
-                                })).ToList();
+            Task.Run(
+                async () =>
+                    {
+                        while (!_stopping)
+                        {
+                            await Task.Delay(1000);
 
-            tasks.Add(Task.Delay(TimeSpan.FromSeconds(timeS)));
+                            var now = DateTime.UtcNow;
+                            var tps = (int)(_counter / (now - lastDisplay).TotalSeconds);
 
-            await Task.WhenAny(tasks);
+                            Console.Write($"{tasks.Count} Threads, {tps} tps");
 
-            stopping = true;
+                            Console.CursorLeft = 0;
 
-            Console.WriteLine("Shutting down");
+                            lastDisplay = now;
+
+                            _counter = 0;
+                        }
+                    });
+
+            Task.Run(
+                () =>
+                    {
+                        Console.ReadLine();
+
+                        _stopping = true;
+                    });
 
             await Task.WhenAll(tasks);
-
-            Console.WriteLine($"Executed {counter} queries.");
         }
 
-        private static async Task<IntPtr> Connect(string connInfo)
+        private static void DoWork()
         {
-            var conn = LibPQ.PQconnectStart(connInfo);
+            var conn = IntPtr.Zero;
 
-            if (conn == IntPtr.Zero)
+            try
             {
-                throw new InvalidOperationException("Unable to allocate connection handle.");
-            }
+                conn = Connect();
 
-            while (true)
-            {
-                switch (LibPQ.PQconnectPoll(conn))
+                while (!_stopping)
                 {
-                    case LibPQ.PostgresPollingStatusType.PGRES_POLLING_OK:
-                        return conn;
-                    case LibPQ.PostgresPollingStatusType.PGRES_POLLING_FAILED:
-                        throw new InvalidOperationException($"Unable to connect: {LibPQ.PQerrorMessage(conn)}");
-                    case LibPQ.PostgresPollingStatusType.PGRES_POLLING_READING:
-                    case LibPQ.PostgresPollingStatusType.PGRES_POLLING_WRITING:
-                    case LibPQ.PostgresPollingStatusType.PGRES_POLLING_ACTIVE:
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                    Interlocked.Increment(ref _counter);
 
-                await Task.Yield();
-            }
-        }
+                    var queryResult = IntPtr.Zero;
 
-        private static async Task Execute(IntPtr conn)
-        {
-            if (LibPQ.PQsendQuery(conn, "select id, message from fortune") != 1)
-            {
-                throw new InvalidOperationException($"Unable to dispatch command: {LibPQ.PQerrorMessage(conn)}");
-            }
-
-            //Console.WriteLine("Sent query.");
-
-            while (true)
-            {
-                var result = LibPQ.PQgetResult(conn);
-
-                if (result == IntPtr.Zero)
-                {
-                    break;
-                }
-
-                var status = LibPQ.PQresultStatus(result);
-                var statusName = Marshal.PtrToStringAnsi(LibPQ.PQresStatus(status));
-
-                //Console.WriteLine($"Got result. ({statusName})");
-
-                switch (status)
-                {
-                    case LibPQ.ExecStatusType.PGRES_TUPLES_OK:
+                    try
                     {
-                        for (var i = 0; i < 12; i++)
-                        {
-                            var id = Marshal.PtrToStringUTF8(LibPQ.PQgetvalue(result, i, 0));
-                            var message = Marshal.PtrToStringUTF8(LibPQ.PQgetvalue(result, i, 1));
+                        queryResult = PGNative.LibPQ.PQexecPrepared(conn, StmtName, 0, IntPtr.Zero, 0, 0, 0);
 
-                            //Console.WriteLine($"Read row: [{id}, {message}]");
+                        if (queryResult == IntPtr.Zero
+                            || PGNative.LibPQ.PQresultStatus(queryResult) != PGNative.LibPQ.ExecStatusType.PGRES_TUPLES_OK)
+                        {
+                            throw new InvalidOperationException("Unable to execute query!");
                         }
 
-                        LibPQ.PQclear(result);
-
-                        break;
+                        for (var i = 0; i < PGNative.LibPQ.PQntuples(queryResult); i++)
+                        {
+                            var id = Marshal.PtrToStringUTF8(PGNative.LibPQ.PQgetvalue(queryResult, i, 0));
+                            var message = Marshal.PtrToStringUTF8(PGNative.LibPQ.PQgetvalue(queryResult, i, 1));
+                        }
                     }
-                    case LibPQ.ExecStatusType.PGRES_EMPTY_QUERY:
-                    case LibPQ.ExecStatusType.PGRES_COMMAND_OK:
-                    case LibPQ.ExecStatusType.PGRES_COPY_OUT:
-                    case LibPQ.ExecStatusType.PGRES_COPY_IN:
-                    case LibPQ.ExecStatusType.PGRES_BAD_RESPONSE:
-                    case LibPQ.ExecStatusType.PGRES_NONFATAL_ERROR:
-                    case LibPQ.ExecStatusType.PGRES_FATAL_ERROR:
-                    case LibPQ.ExecStatusType.PGRES_COPY_BOTH:
-                    case LibPQ.ExecStatusType.PGRES_SINGLE_TUPLE:
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
+                    finally
+                    {
+                        if (queryResult != IntPtr.Zero)
+                        {
+                            PGNative.LibPQ.PQclear(queryResult);
+                        }
+                    }
                 }
-                
-                await Task.Yield();
             }
+            finally
+            {
+                if (conn != IntPtr.Zero)
+                {
+                    PGNative.LibPQ.PQfinish(conn);
+                }
+            }
+        }
+
+        private static IntPtr Connect()
+        {
+            var conn = PGNative.LibPQ.PQconnectdb(ConnInfo);
+
+            if (conn == IntPtr.Zero
+                || PGNative.LibPQ.PQstatus(conn) != PGNative.LibPQ.ConnStatusType.CONNECTION_OK)
+            {
+                throw new InvalidOperationException("Unable to connect!");
+            }
+
+            var prepareResult = IntPtr.Zero;
+
+            try
+            {
+                prepareResult
+                    = PGNative.LibPQ.PQprepare(conn, StmtName, "select id, message from fortune", 0, null);
+
+                if (prepareResult == IntPtr.Zero
+                    || PGNative.LibPQ.PQresultStatus(prepareResult) != PGNative.LibPQ.ExecStatusType.PGRES_COMMAND_OK)
+                {
+                    throw new InvalidOperationException("Unable to prepare query!");
+                }
+            }
+            finally
+            {
+                if (prepareResult != IntPtr.Zero)
+                {
+                    PGNative.LibPQ.PQclear(prepareResult);
+                }
+            }
+
+            return conn;
         }
     }
 }

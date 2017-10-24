@@ -7,64 +7,116 @@ using System.Threading;
 using System.Threading.Tasks;
 using Npgsql;
 
-namespace NPGSql
+#pragma warning disable 4014
+
+namespace NPGSql.Bench
 {
     internal class Program
     {
-        private static async Task Main(string[] args)
-        {
-            const string connectionString = "Server=localhost;Database=aspnet5-Benchmarks;User Id=postgres;password=Password1;";
-            const int concurrency = 1;
-            const int timeS = 10;
-            const int maxTransactions = 100000;
+        private const string ConnInfo
+            = "Server=localhost;Database=aspnet5-Benchmarks;User Id=postgres;password=Password1;";
 
-            var counter = 0;
-            var stopping = false;
+        private const int NumTasks = 32;
+
+        private static int _counter;
+        private static bool _stopping;
+
+        private static async Task Main()
+        {
+            var lastDisplay = DateTime.UtcNow;
 
             var tasks
                 = Enumerable
-                    .Range(1, concurrency)
-                    .Select(
-                        i => Task.Run(
-                            async () =>
-                                {
-                                    while (!stopping
-                                           && Interlocked.Increment(ref counter) < maxTransactions)
-                                    {
-                                        using (var connection = new NpgsqlConnection(connectionString))
-                                        {
-                                            await connection.OpenAsync();
+                    .Range(1, NumTasks)
+                    //.Select(_ => Task.Factory.StartNew(DoWork, TaskCreationOptions.LongRunning))
+                    .Select(_ => Task.Factory.StartNew(DoWorkAsync, TaskCreationOptions.LongRunning).Unwrap())
+                    .ToList();
 
-                                            using (var command = connection.CreateCommand())
-                                            {
-                                                command.CommandText = "select id, message from fortune";
+            Task.Run(
+                async () =>
+                    {
+                        while (!_stopping)
+                        {
+                            await Task.Delay(1000);
 
-                                                using (var reader = command.ExecuteReader())
-                                                {
-                                                    for (var j = 0; j < 12; j++)
-                                                    {
-                                                        await reader.ReadAsync();
+                            var now = DateTime.UtcNow;
+                            var tps = (int)(_counter / (now - lastDisplay).TotalSeconds);
 
-                                                        var id = reader.GetInt32(0);
-                                                        var message = reader.GetString(1);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                })).ToList();
+                            Console.Write($"{tasks.Count} Threads, {tps} tps");
 
-            tasks.Add(Task.Delay(TimeSpan.FromSeconds(timeS)));
+                            Console.CursorLeft = 0;
 
-            await Task.WhenAny(tasks);
+                            lastDisplay = now;
 
-            stopping = true;
+                            _counter = 0;
+                        }
+                    });
 
-            Console.WriteLine("Shutting down");
+            Task.Run(
+                () =>
+                    {
+                        Console.ReadLine();
+
+                        _stopping = true;
+                    });
 
             await Task.WhenAll(tasks);
+        }
 
-            Console.WriteLine($"Executed {counter} queries.");
+        private static void DoWork()
+        {
+            using (var connection = new NpgsqlConnection(ConnInfo))
+            {
+                connection.Open();
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "select id, message from fortune";
+                    command.Prepare();
+
+                    while (!_stopping)
+                    {
+                        Interlocked.Increment(ref _counter);
+
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                var id = reader.GetInt32(0);
+                                var message = reader.GetString(1);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private static async Task DoWorkAsync()
+        {
+            using (var connection = new NpgsqlConnection(ConnInfo))
+            {
+                await connection.OpenAsync();
+
+                using (var command = connection.CreateCommand())
+                {
+                    command.CommandText = "select id, message from fortune";
+                    command.Prepare();
+
+                    while (!_stopping)
+                    {
+                        Interlocked.Increment(ref _counter);
+
+                        using (var reader = await command.ExecuteReaderAsync())
+                        {
+                            while (await reader.ReadAsync())
+                            {
+                                var id = reader.GetInt32(0);
+                                var message = reader.GetString(1);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

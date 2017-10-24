@@ -33,6 +33,21 @@ namespace PGNative
             PGRES_SINGLE_TUPLE
         }
 
+        public enum ConnStatusType
+        {
+            CONNECTION_OK,
+            CONNECTION_BAD,
+            CONNECTION_STARTED,
+            CONNECTION_MADE,
+            CONNECTION_AWAITING_RESPONSE,
+            CONNECTION_AUTH_OK,
+            CONNECTION_SETENV,
+            CONNECTION_SSL_STARTUP,
+            CONNECTION_NEEDED,
+            CONNECTION_CHECK_WRITABLE,
+            CONNECTION_CONSUME
+        }
+
         [DllImport("libpq", EntryPoint = "PQconnectStart")]
         public static extern IntPtr PQconnectStart([In] [MarshalAs(UnmanagedType.LPStr)] string conninfo);
 
@@ -41,6 +56,9 @@ namespace PGNative
 
         [DllImport("libpq", EntryPoint = "PQconnectdb")]
         public static extern IntPtr PQconnectdb([In] [MarshalAs(UnmanagedType.LPStr)] string conninfo);
+
+        [DllImport("libpq", EntryPoint = "PQstatus")]
+        public static extern ConnStatusType PQstatus(IntPtr conn);
 
         [DllImport("libpq", EntryPoint = "PQfinish")]
         public static extern void PQfinish(IntPtr conn);
@@ -65,5 +83,26 @@ namespace PGNative
 
         [DllImport("libpq", EntryPoint = "PQerrorMessage")]
         public static extern string PQerrorMessage(IntPtr conn);
+
+        [DllImport("libpq", EntryPoint = "PQprepare")]
+        public static extern IntPtr PQprepare(
+            IntPtr conn,
+            [In] [MarshalAs(UnmanagedType.LPStr)] string stmtName,
+            [In] [MarshalAs(UnmanagedType.LPStr)] string query,
+            int nParams,
+            uint[] paramTypes);
+
+        [DllImport("libpq", EntryPoint = "PQexecPrepared")]
+        public static extern IntPtr PQexecPrepared(
+            IntPtr conn,
+            [In] [MarshalAs(UnmanagedType.LPStr)] string stmtName,
+            int nParams,
+            IntPtr paramValues,
+            int paramLengths,
+            int paramFormats,
+            int resultFormat);
+
+        [DllImport("libpq", EntryPoint = "PQntuples")]
+        public static extern int PQntuples(IntPtr res);
     }
 }
